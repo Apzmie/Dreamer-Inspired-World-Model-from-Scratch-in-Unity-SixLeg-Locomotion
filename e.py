@@ -156,13 +156,12 @@ class WorldModel(nn.Module):
         pred_reward = self.reward_model(state, action)
         pred_continue_logit = self.continue_model(state, action)
         
-        #==========================================
-        
         next_state_loss = F.mse_loss(pred_next_state, next_state)                
         reward_loss = F.mse_loss(pred_reward, reward)        
         continue_loss = F.binary_cross_entropy_with_logits(pred_continue_logit, continuation)
         
         total_loss = next_state_loss + reward_loss + continue_loss
+        
         return total_loss, next_state_loss, reward_loss, continue_loss
         
         
@@ -198,7 +197,8 @@ class Actor(nn.Module):
         
     def deterministic(self, state):
         mean, _ = self.forward(state)
-        return torch.tanh(mean)
+        action = torch.tanh(mean)
+        return action
         
 
 class Critic(nn.Module):
@@ -233,23 +233,22 @@ class Agent:
         
         ###########################################
         ### Load Actor (fc1, fc2, mean) ###
-        # Set random_exploration_steps to 0, learning_starts to the minimum
         ###########################################
         
-        state_dict = torch.load(f"{BASE_DIR}/previous_model.pth")
-        self.actor.fc1.load_state_dict({"weight": state_dict["fc1.weight"], "bias": state_dict["fc1.bias"]})
-        self.actor.fc2.load_state_dict({"weight": state_dict["fc2.weight"], "bias": state_dict["fc2.bias"]})
-        self.actor.mean.load_state_dict({"weight": state_dict["mean.weight"], "bias": state_dict["mean.bias"]})
+        #state_dict = torch.load(f"{BASE_DIR}/previous_model.pth")
+        #self.actor.fc1.load_state_dict({"weight": state_dict["fc1.weight"], "bias": state_dict["fc1.bias"]})
+        #self.actor.fc2.load_state_dict({"weight": state_dict["fc2.weight"], "bias": state_dict["fc2.bias"]})
+        #self.actor.mean.load_state_dict({"weight": state_dict["mean.weight"], "bias": state_dict["mean.bias"]})
         
-        with torch.no_grad():        
-            self.actor.log_std.weight.zero_()
-            self.actor.log_std.bias.fill_(-2)        
+        #with torch.no_grad():        
+        #    self.actor.log_std.weight.zero_()
+        #    self.actor.log_std.bias.fill_(-2)        
         
         #==========================================
         
         self.actor_optimizer = LaProp(self.actor.parameters(), lr=lr)
         
-    def imagine(self, state, horizon=1):
+    def imagine(self, state, horizon=5):
         imagined_states = []
         imagined_actions = []
         imagined_rewards = []
@@ -313,19 +312,20 @@ class Agent:
                 if grad_norm > max_norm:
                     p.grad.mul_(max_norm / (grad_norm + 1e-6))
                 
-    def world_model_update(self, batch):
-        state = torch.FloatTensor(batch['state'])
-        action = torch.FloatTensor(batch['action'])
-        reward = torch.FloatTensor(batch['reward'])
-        next_state = torch.FloatTensor(batch['next_state'])
-        done = torch.FloatTensor(batch['done'])
+    def world_model_update(self, batch, num_updates=4):
+        state = torch.from_numpy(batch['state'])
+        action = torch.from_numpy(batch['action'])
+        reward = torch.from_numpy(batch['reward'])
+        next_state = torch.from_numpy(batch['next_state'])
+        done = torch.from_numpy(batch['done'])
         continuation = 1.0 - done
         
-        world_model_loss, next_state_loss, reward_loss, continue_loss = self.world_model.loss(state, action, next_state, reward, continuation)
-        self.world_model_optimizer.zero_grad()
-        world_model_loss.backward()
-        self.adaptive_grad_clip(self.world_model.parameters())
-        self.world_model_optimizer.step()       
+        for _ in range(num_updates):
+            world_model_loss, next_state_loss, reward_loss, continue_loss = self.world_model.loss(state, action, next_state, reward, continuation)
+            self.world_model_optimizer.zero_grad()
+            world_model_loss.backward()
+            self.adaptive_grad_clip(self.world_model.parameters())
+            self.world_model_optimizer.step()       
         
         return {
             "next_state_loss": next_state_loss.item(),
@@ -333,12 +333,12 @@ class Agent:
             "continue_loss": continue_loss.item(),
         }
 
-    def update(self, batch):
-        state = torch.FloatTensor(batch['state'])
-        action = torch.FloatTensor(batch['action'])
-        reward = torch.FloatTensor(batch['reward'])
-        next_state = torch.FloatTensor(batch['next_state'])
-        done = torch.FloatTensor(batch['done'])
+    def update(self, batch, eta=1e-4):
+        state = torch.from_numpy(batch['state'])
+        action = torch.from_numpy(batch['action'])
+        reward = torch.from_numpy(batch['reward'])
+        next_state = torch.from_numpy(batch['next_state'])
+        done = torch.from_numpy(batch['done'])
         
         #==========================================
         
@@ -347,7 +347,7 @@ class Agent:
         for p in self.actor.parameters():
             p.requires_grad = False 
             
-        imagined_states, imagined_actions, imagined_rewards, imagined_next_states, imagined_continuations, imagined_log_probs = self.imagine(state)
+        imagined_states, _, imagined_rewards, imagined_next_states, imagined_continuations, _ = self.imagine(state)
         imagined_values = self.critic(imagined_states)
         with torch.no_grad():
             imagined_next_values = self.target_critic(imagined_next_states)
@@ -373,11 +373,11 @@ class Agent:
         for p in self.critic.parameters():
             p.requires_grad = False  
             
-        imagined_states, imagined_actions, imagined_rewards, imagined_next_states, imagined_continuations, imagined_log_probs = self.imagine(state)
+        _, _, imagined_rewards, imagined_next_states, imagined_continuations, imagined_log_probs = self.imagine(state)
         imagined_next_values = self.critic(imagined_next_states)
         returns = self.compute_return(imagined_rewards, imagined_next_values, imagined_continuations)
         
-        actor_loss = -returns.mean() + 0.0001 * imagined_log_probs.mean()        
+        actor_loss = -returns.mean() + eta * imagined_log_probs.mean()        
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.adaptive_grad_clip(self.actor.parameters())
@@ -392,6 +392,38 @@ class Agent:
             "critic_loss": critic_loss.item(),
             "actor_loss": actor_loss.item(),
         }
+        
+    def save_checkpoint(self, path, buffer, online_buffer):
+        torch.save({
+            "world_model": self.world_model.state_dict(),
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "target_critic": self.target_critic.state_dict(),
+            
+            "world_model_optimizer": self.world_model_optimizer.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "critic_optimizer": self.critic_optimizer.state_dict(),
+            
+            "buffer": buffer,
+            "online_buffer": online_buffer,
+        }, path)
+        
+    def load_checkpoint(self, path):
+        checkpoint = torch.load(path)
+
+        self.world_model.load_state_dict(checkpoint["world_model"])
+        self.actor.load_state_dict(checkpoint["actor"])
+        self.critic.load_state_dict(checkpoint["critic"])
+        self.target_critic.load_state_dict(checkpoint["target_critic"])
+
+        self.world_model_optimizer.load_state_dict(checkpoint["world_model_optimizer"])
+        self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+
+        buffer = checkpoint["buffer"]
+        online_buffer = checkpoint["online_buffer"]
+
+        return buffer, online_buffer
 
 
 class ReplayBuffer:
@@ -577,7 +609,7 @@ if __name__ == "__main__":
                     writer.add_scalar("Test/Average_Reward", test_average_reward, update_count)
                     print(f"{test_average_reward:.4f}")
                     torch.save(agent.actor.state_dict(), f"{BASE_DIR}/period_model.pth")
-                    #agent.save_checkpoint(f"{BASE_DIR}/checkpoint.pth", buffer, online_buffer)
+                    agent.save_checkpoint(f"{BASE_DIR}/checkpoint.pth", buffer, online_buffer)
                          
                     if test_average_reward > best_test_reward:
                         best_test_reward = test_average_reward
