@@ -248,7 +248,7 @@ class Agent:
         
         self.actor_optimizer = LaProp(self.actor.parameters(), lr=lr)
         
-    def imagine(self, state, horizon=5):
+    def imagine(self, state, horizon=2):
         imagined_states = []
         imagined_actions = []
         imagined_rewards = []
@@ -312,7 +312,7 @@ class Agent:
                 if grad_norm > max_norm:
                     p.grad.mul_(max_norm / (grad_norm + 1e-6))
                 
-    def world_model_update(self, batch, num_updates=4):
+    def world_model_update(self, batch, num_updates=8):
         state = torch.from_numpy(batch['state'])
         action = torch.from_numpy(batch['action'])
         reward = torch.from_numpy(batch['reward'])
