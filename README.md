@@ -1,24 +1,18 @@
-# Under-Construction / There is incorrect information, currently being fixed
+# Under-Construction
 The 2018 World Model that I implemented last time failed to achieve satisfactory results due to prediction errors in world model, long training time of LSTM, inefficiency of gradient-free ES, and other practical limitations. I found Dreamer V1–V3, improved versions of the 2018 World Model, which demonstrated their ability to perform articulation control, so I decided to implement Dreamer rather than continuing with the previous one.
 
 Although I continued trying to implement V1, it failed to achieve any meaningful performance, and I could not find out what caused the problem. So, I tried another approach that was using SAC that I had previously implemented as a starting point, and I could find out what caused the problem: RSSM (Recurrent State-Space Model). RSSM is a method that uses GRU, latent, and prior/posterior. The training was unsuccessful when I used these components together or separately, but successful when I simply used an MLP to predict the next state. RSSM can be beneficial for high-dimensional inputs like pixel values because predicting low-dimensional latent is easier than predicting high-dimensional values. However, I failed to get successful results with my RSSM implementation, even in vector-state environment where prediction is easier than predicting pixel values. So, if I plan to use RSSM with image inputs in the future, I will first need to find ways to make it work well with vector-state inputs.
 
-Unlike the 2018 World Model, Dreamer repeatedly updates world model and actor-critic in sequence, allowing world model to learn from new experiences and reduce prediction error. However, simply doing this still left some prediction errors, causing reward to decrease over time and leading to a complete collapse. I was able to significantly reduce world model loss and improve actor-critic by applying various techniques described in V1–V3, but I only applied the techniques that worked well or that I considered necessary.
+Unlike the 2018 World Model, Dreamer iteratively updates the world model and actor-critic, allowing the world model to continuously learn from new experiences. However, simply implementing this idea was not sufficient to achieve successful training in the fourleg walking Unity environment, where the agent resets whenever its knees touch the ground. By applying some techniques from V1–V3 that showed good results within a short training time and that I wanted to implement, I was finally able to achieve successful training.
+
+- DreamerV1 — [*DREAM TO CONTROL: LEARNING BEHAVIORS BY LATENT IMAGINATION*](https://arxiv.org/pdf/1912.01603)
+- DreamerV2 — [*MASTERING ATARI WITH DISCRETE WORLD MODELS*](https://arxiv.org/pdf/2010.02193)
+- DreamerV3 — [*Mastering Diverse Domains through World Models*](https://arxiv.org/pdf/2301.04104)
 
 ## Diagram
 ![diagram](images/diagram.png)
 
-Here are some of the techniques applied in this implementation. There are other techniques as well, but they are not mentioned here for brevity.
-
-### RMSNorm
-<img src="images/rmsnorm.png" alt="rmsnorm" width="300">
-
-RMSNorm is a normalization that applies square-mean-root to the input, and then divides the input by this value to make the input's scale around 1. This helps prevent gradient explosion and vanishing when the input becomes extremely large or small. Although it may slow down learning convergence when the gradient is reasonably large, it can help achieve better final performance. The original RMSNorm has learnable parameters that allow the normalized values to be adjusted, but I did not include them because they slowed down learning convergence in the early stages of training.
-
-### Next State Model (Posterior/Prior, Mean/Std)
-<img src="images/next_state_model.png" alt="next_state_model" width="600">
-
-The basic approach to predicting next state is to make the prediction without seeing actual next state, like Prior. However, adding Posterior that sees actual next state and training Prior/Posterior distributions can improve prediction accuracy because Posterior takes the answer as input. In dynamics loss, stop gradient to Posterior so that Prior learns Posterior's next state distribution. In representation loss, stop gradient to Prior so that Posterior learns prior's representation to help Prior predict better, and multiply this loss by 0.1 to prevent weakening Posterior's performance. Also, apply max 1 to both losses to make their gradients 0 when they are below 1, preventing bad shortcuts such as increasing Std to make the distributions too similar. Lastly, use MSE to make Posterior match the actual next state, so that both distributions can be learned correctly. Additionally, Mean/Std approach enables expressing uncertainty and representing multiple possible predictions, which can improve prediction accuracy as well.
+Here are some of the techniques applied in this implementation.
 
 ### Adaptive Gradient Clipping
 <img src="images/adaptive_grad_clip.png" alt="adaptive_grad_clip" width="500">
@@ -34,15 +28,10 @@ Looking at Adam first, GM adjusts the update direction, while GSM adjusts the up
 
 For LaProp, however, GSM is first calculated to obtain the normalized gradient, and then this normalized gradient is used to calculate GM. The reason for using the normalized gradient is to reduce the effect of the gradient's magnitude when calculating GM, allowing GM to focus more on its direction. This helps world models, where accuracy is important, converge smoothly by reducing sudden changes in updates, although it may lose some useful gradient magnitude information. β₂ is set to 0.99 instead of 0.999 to respond more quickly to recent changes, and ε is set to 10⁻²⁰ instead of 10⁻⁸ to minimize its effect on normalization. However, if √GSM becomes as small as 10⁻²⁰, the normalized gradient can become extremely large. Because gradients are usually not that small to make √GSM extremely small and this process is not the final operation, this is unlikely to cause a problem.
 
-### Advantage Normalization
-<img src="images/adv_norm.png" alt="adv_norm" width="500">
-
-Although reward range is narrow like -1 ~ 1, return can vary in magnitude, which can cause large return values obtained by chance to dominate the advantage and result in excessively large policy updates. To reduce this situation, calculate the return spread using P5 and P95 instead of P0 and P100 to reduce the influence of extreme return values, and use it to normalize the advantage. The reason for max(S,1) is to prevent the advantage from becoming larger.
-
 ### Actor Loss
 <img src="images/actor_loss.png" alt="actor_loss" width="700">
 
-There are two possible forms of the actor loss. The former optimizes the return, which is used in V1 and V2 for continuous actions. The latter optimizes the probability of actions based on the advantage, which is used in V3 for both discrete and continuous actions. Because imagined trajectories are differentiable in world model, backpropagation can directly compute how past actions affect the future, which is one of the key capabilities in world model. The former can use this capability, whereas the latter cannot. This is because adjusting the action probability requires stopping the gradient of the advantage, which also stops the gradient of the imagined states that make this capability possible. I think there are two reasons why V3 does not use this capability. First, even if the model predicts well, it cannot predict perfectly due to its approximate nature, which causes small errors to accumulate over the imagined trajectory, making the gradients inaccurate. Second, optimizing the action probabilities provides a more specific learning signal than optimizing the return. For these reasons, it seems that V3 chose to focus more on accuracy than on this capability, and when I tried both approaches, the latter converged faster during the early stages of training. Therefore, V3 was able to obtain diamonds in Minecraft without using this capability because of these reasons and because it could use imagination to predict and experience situations it had never encountered before. Then, this capability is useful but does not seem essential for world model because there are other alternatives that can improve performance.
+There are two possible forms of the actor loss. The former optimizes the return, which is used in V1 and V2 for continuous actions. The latter optimizes the probability of actions based on the advantage, which is used in V3 for both discrete and continuous actions. Because imagined trajectories are differentiable in world model, backpropagation can directly compute how past actions affect the future, which is one of the key capabilities in world model. The former can use this capability, whereas the latter cannot. This is because adjusting the action probability requires stopping the gradient of the advantage, which also stops the gradient of the imagined states that make this capability possible. I think there are two reasons why V3 does not use this capability. First, even if the model predicts well, it cannot predict perfectly due to its approximate nature, which causes small errors to accumulate over the imagined trajectory, making the gradients inaccurate. Second, optimizing the action probabilities provides a more specific learning signal than optimizing the return. Therefore, it seems that V3 was able to obtain diamonds in Minecraft without using this capability because of these reasons and because it could use imagination to predict and experience situations it had never encountered before.
 
 ## Training Progress
 
