@@ -5,9 +5,9 @@ Although I continued trying to implement V1, it failed to achieve any meaningful
 
 Unlike the 2018 World Model, Dreamer iteratively updates the world model and actor-critic, allowing the world model to continuously learn from new experiences. However, simply implementing this idea was not sufficient to achieve successful training in the fourleg walking Unity environment, where the agent resets whenever its knees touch the ground. By applying some techniques from V1–V3 that showed good results within a short training time and that I wanted to implement, I was finally able to achieve successful training.
 
-- DreamerV1 — [*DREAM TO CONTROL: LEARNING BEHAVIORS BY LATENT IMAGINATION*](https://arxiv.org/pdf/1912.01603)
-- DreamerV2 — [*MASTERING ATARI WITH DISCRETE WORLD MODELS*](https://arxiv.org/pdf/2010.02193)
-- DreamerV3 — [*Mastering Diverse Domains through World Models*](https://arxiv.org/pdf/2301.04104)
+DreamerV1 — [*DREAM TO CONTROL: LEARNING BEHAVIORS BY LATENT IMAGINATION*](https://arxiv.org/pdf/1912.01603)<br>
+DreamerV2 — [*MASTERING ATARI WITH DISCRETE WORLD MODELS*](https://arxiv.org/pdf/2010.02193)<br>
+DreamerV3 — [*Mastering Diverse Domains through World Models*](https://arxiv.org/pdf/2301.04104)
 
 ## Diagram
 ![diagram](images/diagram.png)
@@ -34,6 +34,16 @@ For LaProp, however, GSM is first calculated to obtain the normalized gradient, 
 There are two possible forms of the actor loss. The former optimizes the return, which is used in V1 and V2 for continuous actions. The latter optimizes the probability of actions based on the advantage, which is used in V3 for both discrete and continuous actions. Because imagined trajectories are differentiable in world model, backpropagation can directly compute how past actions affect the future, which is one of the key capabilities in world model. The former can use this capability, whereas the latter cannot. This is because adjusting the action probability requires stopping the gradient of the advantage, which also stops the gradient of the imagined states that make this capability possible. I think there are two reasons why V3 does not use this capability. First, even if the model predicts well, it cannot predict perfectly due to its approximate nature, which causes small errors to accumulate over the imagined trajectory, making the gradients inaccurate. Second, optimizing the action probabilities provides a more specific learning signal than optimizing the return. Therefore, it seems that V3 was able to obtain diamonds in Minecraft without using this capability because of these reasons and because it could use imagination to predict and experience situations it had never encountered before.
 
 However, when I tried both approaches in my environment, the former, which uses this capability, achieved better training performance. I think this is because the imagination horizon was set to 2, which is shorter than the horizon of 15 used in V3, allowing the benefits of this capability to outweigh the negative effects of accumulated prediction errors and less direct learning signals. Therefore, which actor loss to use depends on the trade-offs in the given situation.
+
+### Additional Settings
+- **horizon = 2**: To demonstrate that learning is possible from imagination to imagination.
+- **target_critic**: To prevent critic loss from exploding.
+- **world_model_num_updates = 8**: To train on the same batch multiple times.
+- **online_buffer**: To include the latest data in each batch.
+- **ac_update_start = 5000**: To sufficiently train the world model before starting actor–critic update.
+- **ac_update_interval = 4**: To train the world model on diverse batches before actor-critic update.
+
+With these settings, horizon 5 caused large spikes in critic loss, likely due to accumulated prediction errors. Horizon 1 avoided this problem, while horizon 2 caused only minor spikes without disrupting training. Increasing `world_model_num_updates` and `ac_update_interval` may potentially mitigate this problem and enable higher horizons, but the training time would be much longer.
 
 ## Training Progress
 
