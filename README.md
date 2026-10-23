@@ -46,5 +46,8 @@ However, when I tried both approaches in my environment, the former, which uses 
 With these settings, horizon 5 caused large spikes in critic loss, likely due to accumulated prediction errors. Horizon 1 avoided this problem, while horizon 2 caused only minor spikes without disrupting training. Increasing `world_model_num_updates` and `ac_update_interval` may potentially mitigate this problem and enable higher horizons, but the training time would be much longer.
 
 ## Training Progress
+![plot](images/plot.png)
+
+This was conducted in a more difficult environment where two additional legs and a ray sensor were added to the Fourleg mentioned above, with the goal of moving forward. Although the model had seen only a small amount of data in the early stages, the reward increased quickly, and the model was able to achieve forward movement. However, in the middle and later stages of training, the critic loss exploded, causing the actor loss to explode as well. This may be because the critic increasingly overestimated the return as the walking speed and reward increased. When using horizon 1, exploding was reduced, but the best performance was lower than this result. When using SAC, the best performance was much higher. Moreover, when further training the model to walk while avoiding walls, the training did not go well. These results show that the current code implementation has reached its limit.
 
 ## Conclusion
