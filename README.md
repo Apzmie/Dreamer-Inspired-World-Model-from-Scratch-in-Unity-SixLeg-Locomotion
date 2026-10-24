@@ -5,7 +5,7 @@ Although I continued trying to implement V1, it failed to achieve any meaningful
 
 Unlike the 2018 World Model, Dreamer iteratively updates the world model and actor-critic, allowing the world model to continuously learn from new experiences. However, simply implementing this idea was not sufficient to achieve successful training in the fourleg locomotion Unity environment, where the agent resets whenever its knees touch the ground. By applying some techniques from V1–V3 that showed good results within a short training time and that I wanted to implement, I was finally able to achieve successful training. Because this implementation does not include all the key components of Dreamer, I named it Dreamer-inspired.
 
-To try something new in Unity as well, I added a Ray Perception Sensor 3D to move forward while avoiding walls. The results can be found in the Training Progress section.
+To try something new in Unity as well, I added a Ray Perception Sensor 3D to move forward while avoiding walls, and added two additional legs to improve turning ability. The results can be found in the Training Progress section.
 
 DreamerV1 — [*DREAM TO CONTROL: LEARNING BEHAVIORS BY LATENT IMAGINATION*](https://arxiv.org/pdf/1912.01603)<br>
 DreamerV2 — [*MASTERING ATARI WITH DISCRETE WORLD MODELS*](https://arxiv.org/pdf/2010.02193)<br>
