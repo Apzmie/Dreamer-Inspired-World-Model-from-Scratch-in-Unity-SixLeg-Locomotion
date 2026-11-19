@@ -11,6 +11,8 @@ DreamerV1 — [*DREAM TO CONTROL: LEARNING BEHAVIORS BY LATENT IMAGINATION*](htt
 DreamerV2 — [*MASTERING ATARI WITH DISCRETE WORLD MODELS*](https://arxiv.org/pdf/2010.02193)<br>
 DreamerV3 — [*Mastering Diverse Domains through World Models*](https://arxiv.org/pdf/2301.04104)
 
+<img src="images/sixleg.png" alt="sixleg" width="200">
+
 ## Diagram
 ![diagram](images/diagram.png)
 
